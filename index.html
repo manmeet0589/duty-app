@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Duty App</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#16a34a">
+<style>
+body { font-family: Arial; background-color: #f0f2f5; padding: 15px; padding-bottom: 90px; margin: 0; }
+.card { background-color: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); margin: 15px; }
+label { display: block; margin-top: 10px; font-weight: bold; }
+input { width: 100%; padding: 10px; font-size: 16px; box-sizing: border-box; margin-top: 4px; }
+.add { width: 100%; padding: 12px; margin-top: 14px; background-color: green; color: white; font-size: 18px; border: none; border-radius: 8px; }
+.item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #ddd; }
+.date { color: gray; font-size: 13px; }
+.edit { background-color: royalblue; color: white; border: none; border-radius: 6px; padding: 6px 12px; font-size: 16px; }
+.del { background-color: crimson; color: white; border: none; border-radius: 6px; padding: 6px 12px; font-size: 16px; }
+#total { margin-top: 14px; font-size: 18px; font-weight: bold; }
+#summary { font-size: 18px; line-height: 1.9; margin-top: 10px; }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+th, td { border-bottom: 1px solid #ddd; padding: 8px; text-align: left; }
+th { background-color: #e8f5e9; }
+.nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; display: flex; background-color: white; box-shadow: 0 -2px 8px rgba(0,0,0,0.2); }
+.nav button { flex: 1; padding: 16px 0; border: none; background-color: white; font-size: 16px; border-top: 3px solid white; }
+.nav button.active { color: green; font-weight: bold; border-top: 3px solid green; }
+@media print {
+  .nav, .noprint, .edit, .del { display: none; }
+  body { background-color: white; padding: 0; margin: 0; }
+  .card { box-shadow: none; margin: 0; }
+}
+</style>
+</head>
+<body>
+
+<div class="card" id="screen_add">
+  <h2>Duty Jodo</h2>
+  <label>Tareekh</label>
+  <input type="date" id="date">
+  <label>Gaadi number</label>
+  <input type="text" id="car" placeholder="Gaadi number">
+  <label>Amount (Rs)</label>
+  <input type="number" id="amount" placeholder="Amount">
+  <button class="add" id="addBtn" onclick="addDuty()">Add Duty</button>
+</div>
+
+<div class="card" id="screen_list">
+  <h2>Saari Duties</h2>
+  <input type="text" id="search" class="noprint" placeholder="Gaadi number se dhundho" oninput="showList()">
+  <div id="list"></div>
+  <div id="total"></div>
+  <button class="add noprint" onclick="window.print()">Print / PDF</button>
+</div>
+
+<div class="card" id="screen_report">
+  <h2>Report</h2>
+  <label>Mahina chuno (khali = sab)</label>
+  <input type="month" id="month" oninput="showReport()">
+  <div id="summary"></div>
+  <button class="add noprint" onclick="window.print()">Print / PDF</button>
+
+  <h3 class="noprint">Backup</h3>
+  <button class="add noprint" onclick="downloadBackup()">Backup Download</button>
+  <label class="noprint">Backup wapas lao (file chuno)</label>
+  <input type="file" id="restoreFile" class="noprint" accept=".json" onchange="restoreBackup()">
+</div>
+
+<div class="nav">
+  <button id="nav_add" onclick="showScreen('add')">Naya</button>
+  <button id="nav_list" onclick="showScreen('list')">List</button>
+  <button id="nav_report" onclick="showScreen('report')">Report</button>
+</div>
+
+<script>
+let duties = JSON.parse(localStorage.getItem("duties")) || [];
+let editIndex = -1;
+let screens = ["add", "list", "report"];
+
+function saveAll() {
+  localStorage.setItem("duties", JSON.stringify(duties));
+}
+
+function todayStr() {
+  let d = new Date();
+  let m = String(d.getMonth() + 1).padStart(2, "0");
+  let day = String(d.getDate()).padStart(2, "0");
+  return d.getFullYear() + "-" + m + "-" + day;
+}
+
+function showDate(d) {
+  if (!d) { return ""; }
+  let p = d.split("-");
+  return p[2] + "-" + p[1] + "-" + p[0];
+}
+
+// Purani entries ki tareekh naye format me badalna
+for (let i = 0; i < duties.length; i++) {
+  let d = duties[i].date;
+  if (!d) {
+    duties[i].date = "";
+  } else if (d.includes("/")) {
+    let p = d.split("/");
+    duties[i].date = p[2] + "-" + p[1].padStart(2, "0") + "-" + p[0].padStart(2, "0");
+  }
+}
+saveAll();
+
+function showScreen(name) {
+  for (let k = 0; k < screens.length; k++) {
+    document.getElementById("screen_" + screens[k]).style.display = "none";
+    document.getElementById("nav_" + screens[k]).className = "";
+  }
+  document.getElementById("screen_" + name).style.display = "block";
+  document.getElementById("nav_" + name).className = "active";
+
+  if (name === "list") { showList(); }
+  if (name === "report") { showReport(); }
+}
+
+function addDuty() {
+  let date = document.getElementById("date").value;
+  let car = document.getElementById("car").value;
+  let amount = Number(document.getElementById("amount").value);
+
+  if (car === "" || amount === 0 || date === "") {
+    alert("Tareekh, gaadi number aur amount teeno bharo!");
+    return;
+  }
+
+  if (editIndex === -1) {
+    duties.push({ car: car, amount: amount, date: date });
+  } else {
+    duties[editIndex] = { car: car, amount: amount, date: date };
+    editIndex = -1;
+    document.getElementById("addBtn").innerHTML = "Add Duty";
+  }
+
+  saveAll();
+  document.getElementById("car").value = "";
+  document.getElementById("amount").value = "";
+  document.getElementById("date").value = todayStr();
+  showScreen("list");
+}
+
+function editDuty(i) {
+  document.getElementById("date").value = duties[i].date;
+  document.getElementById("car").value = duties[i].car;
+  document.getElementById("amount").value = duties[i].amount;
+  editIndex = i;
+  document.getElementById("addBtn").innerHTML = "Update Duty";
+  showScreen("add");
+}
+
+function deleteDuty(i) {
+  if (!confirm("Pakka delete karna hai?")) {
+    return;
+  }
+  duties.splice(i, 1);
+  editIndex = -1;
+  document.getElementById("addBtn").innerHTML = "Add Duty";
+  saveAll();
+  showList();
+}
+
+function showList() {
+  let search = document.getElementById("search").value.toLowerCase();
+  let html = "";
+  let total = 0;
+  let count = 0;
+
+  for (let i = 0; i < duties.length; i++) {
+    if (!duties[i].car.toLowerCase().includes(search)) {
+      continue;
+    }
+
+    html += "<div class='item'><span>" + duties[i].car + " - Rs " + duties[i].amount +
+            "<br><span class='date'>" + showDate(duties[i].date) + "</span></span>" +
+            "<span><button class='edit' onclick='editDuty(" + i + ")'>Edit</button> " +
+            "<button class='del' onclick='deleteDuty(" + i + ")'>X</button></span></div>";
+    total = total + duties[i].amount;
+    count = count + 1;
+  }
+
+  if (count === 0) {
+    html = "Koi duty nahi mili";
+  }
+
+  document.getElementById("list").innerHTML = html;
+  document.getElementById("total").innerHTML = "Entries: " + count + " | Total: Rs " + total;
+}
+
+function showReport() {
+  let month = document.getElementById("month").value;
+  let total = 0;
+  let count = 0;
+  let biggest = 0;
+  let carTotal = {};
+
+  for (let i = 0; i < duties.length; i++) {
+    if (month !== "" && !duties[i].date.startsWith(month)) {
+      continue;
+    }
+
+    total = total + duties[i].amount;
+    count = count + 1;
+    if (duties[i].amount > biggest) {
+      biggest = duties[i].amount;
+    }
+
+    let key = duties[i].car.toUpperCase();
+    carTotal[key] = (carTotal[key] || 0) + duties[i].amount;
+  }
+
+  if (count === 0) {
+    document.getElementById("summary").innerHTML = "Is mahine koi duty nahi hai";
+    return;
+  }
+
+  let html = "Kul duties: " + count +
+             "<br>Kul amount: Rs " + total +
+             "<br>Sabse badi duty: Rs " + biggest +
+             "<br><br><b>Gaadi-wise</b>" +
+             "<table><tr><th>Gaadi</th><th>Amount</th></tr>";
+
+  for (let name in carTotal) {
+    html += "<tr><td>" + name + "</td><td>Rs " + carTotal[name] + "</td></tr>";
+  }
+
+  html += "</table>";
+  document.getElementById("summary").innerHTML = html;
+}
+
+function downloadBackup() {
+  let text = JSON.stringify(duties);
+  let blob = new Blob([text], { type: "application/json" });
+  let link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "duty-backup-" + todayStr() + ".json";
+  link.click();
+}
+
+function restoreBackup() {
+  let file = document.getElementById("restoreFile").files[0];
+  if (!file) {
+    return;
+  }
+
+  let reader = new FileReader();
+  reader.onload = function () {
+    let data;
+    try {
+      data = JSON.parse(reader.result);
+    } catch (e) {
+      alert("Ye sahi backup file nahi hai!");
+      return;
+    }
+
+    if (!Array.isArray(data)) {
+      alert("Ye sahi backup file nahi hai!");
+      return;
+    }
+
+    if (!confirm("Abhi ka data hat jayega aur backup wala data aayega. Pakka?")) {
+      return;
+    }
+
+    duties = data;
+    saveAll();
+    showScreen("list");
+    alert("Backup wapas aa gaya!");
+  };
+  reader.readAsText(file);
+  document.getElementById("restoreFile").value = "";
+}
+
+document.getElementById("date").value = todayStr();
+document.getElementById("month").value = todayStr().slice(0, 7);
+showScreen("list");
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js");
+}
+</script>
+
+</body>
+</html>
